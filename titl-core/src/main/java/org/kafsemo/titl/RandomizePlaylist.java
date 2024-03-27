@@ -41,16 +41,16 @@ import org.kafsemo.titl.diag.InputRange;
  */
 public class RandomizePlaylist {
 
-    private PlaylistRawItems currentPlaylistItems; 
+    private PlaylistRawItems currentPlaylistItems;
     private String currentPlaylistTitle;
-    
+
     public static void randomizePlaylist(File i, File o, String s) throws IOException, ItlException
     {
         long fileLength = i.length();
 
 //        System.out.println("Playlist : " + s);
         InputStream in = new FileInputStream(i);
-        OutputStream out = new FileOutputStream(o);        
+        OutputStream out = new FileOutputStream(o);
         try {
             randomizePlaylist(in, fileLength, out, s);
         } finally {
@@ -58,7 +58,7 @@ public class RandomizePlaylist {
             in.close();
         }
     }
-    
+
     public static void randomizePlaylist(InputStream in, long fileLength, OutputStream out, String s) throws IOException, ItlException
     {
         Input di = new InputImpl(in);
@@ -67,62 +67,62 @@ public class RandomizePlaylist {
 
         RandomizePlaylist pl = new RandomizePlaylist();
 
-        PlaylistRawItems playlist;        
+        PlaylistRawItems playlist;
         playlist = pl.drainPlaylist(new InputImpl(new ByteArrayInputStream(hdr.fileData)), hdr.fileData.length, s);
- 
+
         if (playlist == null)
         {
             System.out.printf("Unable to locate playlist %s\n", s);
             return;
         }
-        
+
         // Get the item ids (song ids) from the playlist
         List<Integer> pi = playlist.getItemIds();
         Collections.shuffle(pi);
-        
+
         // Starting byte offset within the data for the playlist items
-        int offset = (int) playlist.getItemStartOffset();  
+        int offset = (int) playlist.getItemStartOffset();
         int index = 0;
-       
+
         List<ByteArrayOutputStream> pbi = playlist.getRawItems();
-        
+
         // Byte array output stream that will contain the library file data
         // with the shuffled playlist
         ByteArrayOutputStream bo = new ByteArrayOutputStream(hdr.fileData.length);
-        
+
         // Copy the library input to the output up to the place where the playlist
         // items start
         bo.write(hdr.fileData, 0, (int) playlist.getItemStartOffset());
-        
+
         // Loop through all raw playlist items
-	for (ByteArrayOutputStream temp : pbi) 
+	for (ByteArrayOutputStream temp : pbi)
         {
             // Get the raw data in byte array form and convert the new song id
             // to a byte array suitable for writing out
             byte [] data = temp.toByteArray();
             byte [] idArr = ByteBuffer.allocate(4).putInt(pi.get(index).intValue()).array();
-            
+
             // Write the new playlist item to a byte array
             ByteArrayOutputStream renum = new ByteArrayOutputStream(data.length);
             renum.write(data, 0, 24);
             renum.write(idArr, 0, 4);
-            renum.write(data, 28, data.length - 28);      
-            
+            renum.write(data, 28, data.length - 28);
+
             // Write the new playlist item to the library output
             bo.write(renum.toByteArray());
-            
+
             offset += data.length;
             index++;
 	}
-        
+
         // Write the remainder of the library
         bo.write(hdr.fileData, offset, hdr.fileData.length - offset);
-        
+
         // Write the new library
         DataOutputStream dos = new DataOutputStream(out);
         byte [] outputData = bo.toByteArray();
         hdr.write(dos, outputData);
-    }    
+    }
 
     static void printData(byte [] data)
     {
@@ -148,11 +148,11 @@ public class RandomizePlaylist {
         boolean firstItemFound = false;
 
         currentPlaylistTitle = null;
-        
+
         while(going)
         {
             InputRange thisChunk = new InputRange(di.getPosition());
-            
+
             int consumed = 0;
             String type = Util.toString(di.readInt());
             consumed += 4;
@@ -160,7 +160,7 @@ public class RandomizePlaylist {
             int length = di.readInt();
             consumed += 4;
 //            System.out.println(di.getPosition() + ": " + type + ": " + length);
-            
+
             thisChunk.length = length;
             thisChunk.type = type;
 
@@ -178,7 +178,7 @@ public class RandomizePlaylist {
 
 //                System.out.printf("hohm type: 0x%02x\n", hohmType);
 
-                thisChunk.more = hohmType;                            
+                thisChunk.more = hohmType;
                 switch (hohmType)
                 {
                     case 1:
@@ -190,7 +190,7 @@ public class RandomizePlaylist {
                             if (currentPlaylistItems != null) {
                                 if (currentPlaylistTitle != null) {
                                     throw new ItlException("Playlist title defined twice");
-                                }  
+                                }
                                 if (firstItemFound &&
                                     ((currentPlaylistItems.getExpectedItemCount() != currentPlaylistItems.getItemIds().size()) ||
                                      (!currentPlaylistItems.getItemIds().isEmpty())))
@@ -207,17 +207,17 @@ public class RandomizePlaylist {
 //                        System.out.println("Playlist title: " + title + " " + foundPlaylist);
                         consumed = recLength;
                         break;
-                        
+
                     // Types that can occur inside a playlist that we dont care about
                     case 0x65: // Smart criteria
                     case 0x66: // Smart info
                     case 0x67: // Podcast info?
                     case 0x69:
                     case 0x6c:
-                        di.skipBytes(recLength - consumed);                        
+                        di.skipBytes(recLength - consumed);
                         consumed = recLength;
                         thisChunk.more = hohmType + " [ignored] ";
-                        if (currentPlaylistItems != null) 
+                        if (currentPlaylistItems != null)
                         {
                             if (firstItemFound &&
                                 ((currentPlaylistItems.getExpectedItemCount() != currentPlaylistItems.getItemIds().size()) ||
@@ -228,12 +228,12 @@ public class RandomizePlaylist {
                         }
                         else {
                             throw new ItlException("Playlist info without defined playlist");
-                        } 
+                        }
                         break;
-                        
+
                     // no other hohm types should occur inside a playlist. If
                     // they do then assume that the playlist has ended
-                    default: 
+                    default:
                         if (endCurrentPlaylist(foundPlaylist))
                             return currentPlaylistItems;
                         di.skipBytes(recLength - consumed);
@@ -246,7 +246,7 @@ public class RandomizePlaylist {
             {
                 // Starting a new playlist ends the current playlist
                 if (endCurrentPlaylist(foundPlaylist))
-                    return currentPlaylistItems;              
+                    return currentPlaylistItems;
                 readHpim(di, length);
                 firstItemFound = false;
                 consumed = length;
@@ -262,23 +262,24 @@ public class RandomizePlaylist {
                 consumed = length;
             }
             else if(type.equals("hdsm"))
-            {    
+            {
                 // End the current playlist on hdsm as well
                 if (endCurrentPlaylist(foundPlaylist))
-                    return currentPlaylistItems;                                  
-                going = !readHdsm(di, length);
-                consumed = length;
+                    return currentPlaylistItems;
+                ParseLibrary.HdsmData hd = readHdsm(di, length);
+                going = !hd.shouldStop;
+                consumed = length + hd.extraDataLength;
             }
             // Ignored types (not useful for playlist randomization)  any of these
             // types also ends parsing of the current playlist
             else if (type.equals("hghm") || type.equals("halm") || type.equals("hilm") || type.equals("htlm") || type.equals("hplm")
-                    || type.equals("hiim") || type.equals("hqlm") || type.equals("hqim") || type.equals("htim") || type.equals("haim") 
+                    || type.equals("hiim") || type.equals("hqlm") || type.equals("hqim") || type.equals("htim") || type.equals("haim")
                     || type.equals("hdfm"))
-            {                
+            {
                 di.skipBytes(length - consumed);
-                consumed = length;                
+                consumed = length;
                 if (endCurrentPlaylist(foundPlaylist))
-                    return currentPlaylistItems;                                   
+                    return currentPlaylistItems;
             }
             else
             {
@@ -330,7 +331,7 @@ public class RandomizePlaylist {
         // type/len byte arrays for recreating the entire hptm byte entries
         byte[] type = ByteBuffer.allocate(4).putInt(Util.fromString("hptm")).array();
         byte[] len = ByteBuffer.allocate(4).putInt(length).array();
-        
+
         byte[] unknown1 = new byte[16];
         di.readFully(unknown1);
 
@@ -352,10 +353,10 @@ public class RandomizePlaylist {
         bo.write(unknown1, 0, unknown1.length);
         bo.write(keyArr, 0, keyArr.length);
         bo.write(unknown2, 0, unknown2.length);
-        
-        currentPlaylistItems.addItem(key, bo); 
+
+        currentPlaylistItems.addItem(key, bo);
     }
-   
+
     boolean endCurrentPlaylist(boolean foundPlaylist) throws ItlException
     {
         // Ensure that when a playlist ends that the correct number of playlist
@@ -372,10 +373,10 @@ public class RandomizePlaylist {
             if (!foundPlaylist)
             {
                 currentPlaylistItems = null;
-                currentPlaylistTitle = null;                
+                currentPlaylistTitle = null;
             }
         }
-        
+
         return foundPlaylist;
-    } 
+    }
 }

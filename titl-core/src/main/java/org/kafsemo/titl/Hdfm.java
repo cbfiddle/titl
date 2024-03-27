@@ -19,11 +19,7 @@
 package org.kafsemo.titl;
 import static org.kafsemo.titl.Util.assertEquals;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.zip.Deflater;
@@ -102,20 +98,28 @@ public class Hdfm
 
         /* Decrypt */
         decrypted = crypt(version, restOfFile, Cipher.DECRYPT_MODE);
-        
+
         /* Unzip (aka inflate, decompress...) */
         byte[] inflated = inflate(decrypted);
-        
+
         /* If inflate() returned the exact same array, that means the unzip failed, so we should assume
            that the compression shouldn't be used for this ITL file. */
         boolean useCompression = !Arrays.equals(decrypted, inflated);
+
+        if (false) {
+            String home = System.getProperty("user.home");
+            File f = new File(home + "/titl.data");
+            try (FileOutputStream s = new FileOutputStream(f)) {
+                s.write(inflated);
+            }
+        }
 
         return new Hdfm(version, unknown, headerRemainder, inflated, useCompression);
     }
 
     /**
      * hdfm chunks occur inline in 10.0, for some reason.
-     * 
+     *
      * @param di
      * @param length
      * @param consumed
@@ -128,9 +132,9 @@ public class Hdfm
         int hl = di.readInt();
 
         if (hl != 0) {
-            throw new IOException("Expected zero for inline HDFM length (was " + hl + ")");
+            //throw new IOException("Expected zero for inline HDFM length (was " + hl + ")");
         }
-        
+
         int fl = di.readInt();
 
         int unknown = di.readInt();
@@ -151,10 +155,10 @@ public class Hdfm
         if (consumed != length) {
             throw new IOException("Expected to read " + length + " bytes but read " + consumed);
         }
-        
+
         return new Hdfm(version, unknown, headerRemainder, null, false);
     }
-    
+
     /**
      * Obfuscation description from
      * <a href="http://search.cpan.org/src/BDFOY/Mac-iTunes-0.90/examples/crypt-rijndael.pl">this sample</a>.
@@ -184,9 +188,9 @@ public class Hdfm
             }
 
             encryptedLength -= encryptedLength % 16;
-            
+
             int x = orig.length - encryptedLength;
-            
+
             byte[] result = cip.doFinal(orig, 0, encryptedLength);
             System.arraycopy(result, 0, res, 0, result.length);
             System.arraycopy(orig, result.length, res, result.length, x);
@@ -207,7 +211,7 @@ public class Hdfm
     {
         /* Check for a zlib flag byte; 0x78 => 32k window, deflate */
         boolean probablyCompressed = (orig.length >= 1 && orig[0] == 0x78);
-        
+
     	byte[] inflated = null;
 
     	try
@@ -245,7 +249,7 @@ public class Hdfm
 
         return inflated;
     }
-    
+
     private static byte[] deflate(byte[] orig) throws ItlException
     {
     	try
@@ -262,7 +266,7 @@ public class Hdfm
     		        break;
     		    osCompressed.write(deflated, 0, iCompressed);
     		}
-    		
+
     		deflated = osCompressed.toByteArray();
     		osCompressed.close();
     		isDeflater.close();

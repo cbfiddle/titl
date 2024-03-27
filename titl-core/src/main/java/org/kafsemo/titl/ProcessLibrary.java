@@ -113,7 +113,10 @@ public class ProcessLibrary
 
                 /* Did we hit the end? */
                 if(type.equals("hdsm")) {
-                    going = !ParseLibrary.readHdsm(new InputImpl(new ByteArrayInputStream(ba)), ba.length);
+                    ParseLibrary.HdsmData hd = ParseLibrary.readHdsm(new InputImpl(new ByteArrayInputStream(ba)), ba.length);
+                    going = !hd.shouldStop;
+                    consumed += hd.extraDataLength;
+                    remaining -= hd.extraDataLength;
                 }
 
                 remaining -= length;

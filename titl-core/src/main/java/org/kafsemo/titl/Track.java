@@ -39,7 +39,12 @@ public class Track
     private int rating;
     private String url;
     private byte[] albumPersistentId;
-    
+    private int trackNumber;
+    private int trackCount;
+    private int discNumber;
+    private int discCount;
+    private boolean isCompilation;
+
     public int getTrackId()
     {
         return trackId;
@@ -147,6 +152,56 @@ public class Track
     public int getLibraryFolderCount() {
         // TODO Auto-generated method stub
         return -1;
+    }
+
+    public int getTrackNumber()
+    {
+        return trackNumber;
+    }
+
+    public void setTrackNumber(int trackNumber)
+    {
+        this.trackNumber = trackNumber;
+    }
+
+    public int getTrackCount()
+    {
+        return trackCount;
+    }
+
+    public void setTrackCount(int trackCount)
+    {
+        this.trackCount = trackCount;
+    }
+
+    public int getDiscNumber()
+    {
+        return discNumber;
+    }
+
+    public void setDiscNumber(int discNumber)
+    {
+        this.discNumber = discNumber;
+    }
+
+    public int getDiscCount()
+    {
+        return discCount;
+    }
+
+    public void setDiscCount(int discCount)
+    {
+        this.discCount = discCount;
+    }
+
+    public boolean isCompilation()
+    {
+        return isCompilation;
+    }
+
+    public void setCompilation(boolean compilation)
+    {
+        isCompilation = compilation;
     }
 
     public void setTrackId(int trackId)
@@ -321,7 +376,7 @@ public class Track
     {
         this.albumPersistentId = id;
     }
-    
+
     public byte[] getAlbumPersistentId()
     {
         return albumPersistentId;
@@ -336,7 +391,7 @@ public class Track
     {
         this.playcount = playcount;
     }
-    
+
     public int getPlayCount()
     {
         return this.playcount;
@@ -350,7 +405,7 @@ public class Track
             this.playDate = null;
         }
     }
-    
+
     public Date getLastPlayDate()
     {
         return this.playDate;

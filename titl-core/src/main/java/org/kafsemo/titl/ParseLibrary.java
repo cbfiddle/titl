@@ -19,14 +19,7 @@
 package org.kafsemo.titl;
 
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -54,6 +47,20 @@ public class ParseLibrary
 
     private List<Artwork> resourcesWithArtwork = new ArrayList<Artwork>();
     private Artwork currentArtwork;
+
+    public static class HdsmData
+    {
+        public final boolean shouldStop;
+        public final int extraDataLength;
+        public final byte[] extraData;
+
+        public HdsmData(boolean shouldStop, byte[] extraData)
+        {
+            this.shouldStop = shouldStop;
+            this.extraDataLength = extraData != null ? extraData.length : 0;
+            this.extraData = extraData;
+        }
+    }
 
     public static void main(String[] args) throws Exception
     {
@@ -103,6 +110,16 @@ public class ParseLibrary
 
     private static final byte[] flippedHdsm = {'m', 's', 'd', 'h'};
 
+    private void showLastChunks()
+    {
+        int count = diagnostics.size();
+        int show = Math.min(count, 10);
+        int pos = count - show;
+        for (int i = 0; i < show; i++) {
+            System.out.println(diagnostics.get(pos++));
+        }
+    }
+
     static Input inputFor(byte[] fileData)
     {
         InputStream in = new ByteArrayInputStream(fileData);
@@ -120,12 +137,24 @@ public class ParseLibrary
 
         boolean going = true;
 
-        while(going)
+        while(going && remaining > 0)
         {
-            InputRange thisChunk = new InputRange(di.getPosition());
+            long position = di.getPosition();
+            if (position + remaining != totalLength) {
+                long expectedRemaining = totalLength - position;
+                long delta = expectedRemaining - remaining;
+                System.err.println("Incorrect remaining: " + remaining);
+                System.err.println("Expected remaining: " + expectedRemaining);
+                System.err.println("Delta: " + delta);
+                System.err.println("Position: " + position);
+                showLastChunks();
+                throw new ItlException("Incorrect remaining");
+            }
+
+            InputRange thisChunk = new InputRange(position);
 
             diagnostics.add(thisChunk);
-            
+
             int consumed = 0;
             String type = Util.toString(di.readInt());
             consumed += 4;
@@ -133,7 +162,7 @@ public class ParseLibrary
             int length = di.readInt();
             consumed += 4;
 //            System.out.println(di.getPosition() + ": " + type + ": " + length);
-            
+
             thisChunk.length = length;
             thisChunk.type = type;
 
@@ -144,20 +173,17 @@ public class ParseLibrary
                 recLength = di.readInt();
                 consumed += 4;
 
-//                System.out.println("HOHM length: " + recLength);
+                //System.out.println("HOHM length: " + recLength);
 
                 int hohmType = di.readInt();
                 consumed += 4;
 
-//                System.out.printf("hohm type: 0x%02x - ", hohmType);
+                //System.out.printf("hohm type: 0x%02x - ", hohmType);
 
                 thisChunk.more = hohmType;
 
                 switch (hohmType)
                 {
-                    case 1:
-                        throw new IOException("Looks complicated...");
-
                     case 0x02: // Track title
                         String trackTitle = readGenericHohm(di);
                         if (currentTrack == null) {
@@ -356,8 +382,39 @@ public class ParseLibrary
                         consumed = recLength;
                         break;
 
-                    case 0x09: // iTunes category?
+                    case 0x39: // looks like a URL to a static image
+                        byte[] imageURLData = new byte[recLength - consumed];
+                        di.readFully(imageURLData);
+                        consumed = recLength;
+                        break;
 
+                    case 0x42: // appears to be a bookmark (an updatable link to a file)
+                        byte[] header = new byte[8];
+                        di.readFully(header);
+                        consumed += 8;
+                        byte[] bookmark = new byte[recLength - consumed];
+                        di.readFully(bookmark);
+                        consumed = recLength;
+
+                        if (startsWith(bookmark, "alis")) {
+
+                        } else if (startsWith(bookmark, "book")) {
+
+                        } else {
+                            System.err.println("Unexpected data");
+                        }
+
+                        break;
+
+                    case 0x07: // EQ preset
+                        String preset = readTextAfter24(di, recLength - consumed);
+                        consumed = recLength;
+                        if (preset == null || preset.isEmpty()) {
+                            System.err.println("Unexpected preset data");
+                        }
+                        break;
+
+                    case 0x09: // iTunes category?
                     case 0x08:
                     case 0x14:
                     case 0x0c:
@@ -382,6 +439,31 @@ public class ParseLibrary
                         String val = readGenericHohm(di);
                         consumed = recLength;
                         thisChunk.more = hohmType + " [ignored] " + val;
+                        break;
+
+                    case 0x3b: // email address
+                        String email = readTextAfter24(di, recLength - consumed);
+                        consumed = recLength;
+                        if (email == null || email.isEmpty()) {
+                            System.err.println("Unexpected email address data");
+                        }
+                        break;
+
+                    case 0x3c: // personal name
+                        String personalName = readTextAfter24(di, recLength - consumed);
+                        consumed = recLength;
+                        if (personalName == null || personalName.isEmpty()) {
+                            System.err.println("Unexpected personal name data");
+                        }
+                        break;
+
+                    case 0x2be:
+                    case 0x2bf: // looks like text
+                        String uu = readTextAfter24(di, recLength - consumed);
+                        consumed = recLength;
+                        if (uu == null || uu.isEmpty()) {
+                            System.err.println("Unexpected data for type " + String.format("0x%X", hohmType));
+                        }
                         break;
 
                     case 0x65: // Smart criteria
@@ -429,6 +511,7 @@ public class ParseLibrary
                         break;
 
                     /* Unknown, but seen */
+                    case 0x01: // looks like it contains file information, an old format
                     case 0x68:
                     case 0x69:
                     case 0x6A: // A list of bands?
@@ -467,13 +550,27 @@ public class ParseLibrary
                     default:
                         byte[] unknownHohmContents = new byte[recLength - consumed];
                         di.readFully(unknownHohmContents);
-                        throw new UnknownHohmException(hohmType, unknownHohmContents);
+                        consumed = recLength;
+
+                        // Check for possible XML content preceded by 8 NULs
+
+                        String xml = checkXML(unknownHohmContents);
+                        if (xml != null) {
+                            if (hohmType != 0x192 && hohmType != 0x6d && hohmType != 0x36 && hohmType != 0x38 && hohmType != 0x2bc) {
+                                System.err.println("Found XML for " + String.format("0x%X", hohmType) + ": " + xml);
+                            }
+                        } else {
+                            Exception ex = new UnknownHohmException(hohmType, unknownHohmContents);
+                            // throw ex;
+                            System.err.println(ex.getMessage());
+                        }
                 }
             }
             else if(type.equals("hdsm"))
             {
-                going = !readHdsm(di, length);
-                consumed = length;
+               HdsmData hd = readHdsm(di, length);
+               going = !hd.shouldStop;
+               consumed = length + hd.extraDataLength;
             }
             else if (type.equals("hpim"))
             {
@@ -501,7 +598,7 @@ public class ParseLibrary
                 consumed = length;
             }
             else if (type.equals("hghm") || type.equals("halm") || type.equals("hilm") || type.equals("htlm") || type.equals("hplm")
-                    || type.equals("hiim") || type.equals("hslm") || type.equals("hpsm"))
+                    || type.equals("hiim") || type.equals("hslm") || type.equals("hpsm") || type.equals("hqim") || type.equals("hqlm"))
             {
                 di.skipBytes(length - consumed);
                 consumed = length;
@@ -511,24 +608,39 @@ public class ParseLibrary
 //                hexDumpBytes(di, length - consumed);
 //                consumed = length;
 
+                di.skipBytes(length - consumed);
+                consumed = length;
+
+                Exception ex;
                 if (Util.isIdentifier(type)) {
-                    throw new ItlException("Unhandled type: " + type);
+                    ex = new ItlException("Unhandled type: " + type);
                 } else {
-                    throw new ItlException("Library format not understood; bad decryption (unhandled type: "
+                    ex = new ItlException("Library format not understood; bad decryption (unhandled type: "
                             + type + ")");
                 }
+                // throw ex;
+                System.err.println(thisChunk.origin + ": " + ex.getMessage());
             }
 
             remaining -= consumed;
         }
 
-        byte[] footerBytes = new byte[remaining];
-        di.readFully(footerBytes);
+        if (true) {
+            System.err.println("Stopping at " + di.getPosition() + " with remaining = " + remaining);
+        }
 
-        String footer = new String(footerBytes, "iso-8859-1");
+        try {
+            byte[] footerBytes = new byte[remaining];
+            di.readFully(footerBytes);
+
+            String footer = new String(footerBytes, "iso-8859-1");
 //        System.out.println("Footer: " + footer);
 
-        return footer;
+            return footer;
+        } catch (EOFException e) {
+            System.err.println("Unable to read remaining content: end of file");
+            return "";
+        }
     }
 
     static void hexDumpBytes(Input di, int count) throws IOException
@@ -537,6 +649,53 @@ public class ParseLibrary
             int v = di.readUnsignedByte();
 //            System.out.printf("%3d 0x%02x %4s\n", i, v, (v == 0 ? ' ' : (char) v));
         }
+    }
+
+    static String checkXML(byte[] content)
+    {
+        if (content.length < 15) {
+            return null;
+        }
+
+        for (int i = 0; i < 8; i++) {
+            if (content[i] != 0) {
+                return null;
+            }
+        }
+
+        if (content[8] != '<') {
+            return null;
+        }
+        if (content[9] != '?') {
+            return null;
+        }
+        if (content[10] != 'x') {
+            return null;
+        }
+        if (content[11] != 'm') {
+            return null;
+        }
+        if (content[12] != 'l') {
+            return null;
+        }
+        if (content[13] != ' ') {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 8; i < content.length; i++) {
+            int c = content[i] & 0xFF;
+            if ((c >= 0x20) && (c <= 0x7E) || c == '\n') {
+                sb.append((char) c);
+            } else if (c == '\t') {
+                sb.append(' ');
+            } else {
+                sb.append('[');
+                sb.append(c);
+                sb.append(']');
+            }
+        }
+        return sb.toString();
     }
 
 //    Byte   Length  Comment
@@ -558,6 +717,21 @@ public class ParseLibrary
         di.readFully(data);
 
         return toString(data, unknown[11]);
+    }
+
+    static String readTextAfter24(Input di, int length) throws IOException
+    {
+        if (length >= 24) {
+            byte[] unknown = new byte[24];
+            di.readFully(unknown);
+            length = length - 24;
+            byte[] data = new byte[length];
+            di.readFully(data);
+            return toString(data);
+        }
+        byte[] incorrect = new byte[length];
+        di.readFully(incorrect);
+        return null;
     }
 
     public static String toString(byte[] data) throws UnsupportedEncodingException
@@ -604,17 +778,38 @@ public class ParseLibrary
 //      8       4     ?
 //     12       4     block type ?
 //     16      L-16   ?
-    static boolean readHdsm(Input di, int length) throws IOException
+    static HdsmData readHdsm(Input di, int length) throws IOException
     {
+        // The basic length is apparently always 96 bytes.
+        // The basic block is followed by extra data of varying length.
+        // Sometimes it looks like chunks, but the types may be unrecognized and there may be XML in place of a chunk.
+
         // Assume header and length already read
 
-        int unknown = di.readInt();
+        long position = di.getPosition() - 8;
+
+        int extendedLength = di.readInt();
         int blockType = di.readInt();
+        int dataLength = extendedLength - length;
+
+        if (true) {
+            System.out.println(position + " hdsm type " + blockType + " " + length + " " + dataLength);
+        }
 
         di.skipBytes(length - 16);
 
-//        System.out.println("HDSM block type: " + blockType);
-        return (blockType == 4);
+        // The block type 1 extra data is huge. Skipping it means skipping most of the file content.
+
+
+        if (blockType != 1) {
+            byte[] extraData = new byte[dataLength];
+            di.readFully(extraData);
+            return new HdsmData(false, extraData);
+        }
+
+        return new HdsmData(false, null);
+
+        //return false; // (blockType == 4);
     }
 
 //    Byte   Length  Comment
@@ -737,7 +932,13 @@ public class ParseLibrary
 //         44       4     track number
 //         48       4     total number of tracks
 //         52       2     ?
-        di.skipBytes(10);
+
+        int trackNumber = di.readInt();
+        int trackCount = di.readInt();
+        track.setTrackNumber(trackNumber);
+        track.setTrackCount(trackCount);
+
+        di.skipBytes(2);
 
 //         54       2     year
         int year = di.readShort();
@@ -768,7 +969,10 @@ public class ParseLibrary
 //         80       2     ?
 //         82       2     compilation (1 = yes, 0 = no)
 //         84      12     ?
-        di.skipBytes(16);
+        di.skipBytes(2);
+        int compilationFlag = di.readShort();
+        track.setCompilation(compilationFlag != 0);
+        di.skipBytes(12);
 
 //         96       4     playcount again?
         int playcountAgain = di.readInt();
@@ -785,7 +989,13 @@ public class ParseLibrary
 
 //        104       2     disk number
 //        106       2     total disks
-        di.skipBytes(4);
+
+        int discNumber = di.readUnsignedByte();
+        di.skipBytes(1);
+        int discCount = di.readUnsignedByte();
+        di.skipBytes(1);
+        track.setDiscNumber(discNumber);
+        track.setDiscCount(discCount);
 
 //        108       1     rating ( 0 to 100 )
         int rating = di.readUnsignedByte();
@@ -872,6 +1082,20 @@ public class ParseLibrary
             currentArtwork = artwork;
             return null;
         }
+    }
+
+    static boolean startsWith(byte[] bytes, String pattern)
+    {
+        int plength = pattern.length();
+        if (bytes.length < plength) {
+            return false;
+        }
+        for (int i = 0; i < plength; i++) {
+            if (bytes[i] != pattern.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static void expectZeroBytes(Input di, int count) throws IOException, ItlException
